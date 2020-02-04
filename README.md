@@ -1,3 +1,3 @@
- A repositiory of quality control routinesi in Matlab.
+ A repository of quality control routines for oceanographic observations, in Matlab:
 
-landpoints.m Test for on-land lon/lat positions.
+landpoints.m  Test for on-land lon/lat positions.
