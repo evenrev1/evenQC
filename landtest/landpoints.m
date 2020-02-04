@@ -63,15 +63,16 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,crit)
 % positions and green dots for not flagged. Uses input positions,
 % coastlines from (1), and flags from (2). By default plots maps only
 % for clusters with flagged positions, but can be set to plot for all
-% positions (see above).
+% positions (see above). No plots are made if there are no points in
+% the coastal zone.
 %
 %
 % OUTPUT FILES:
 %
 % (from part 1) Mat-files with map polygons and indices to which data
-% belongs in each cluster, for each data
-% file and cluster. Written alongside data files and named 
-% '<file>.landtest.coast.cluster*.mat'. 
+% belongs in each cluster, for each data file and cluster. If any
+% positions are in the coastal zone, files are written alongside data
+% files and named '<file>.landtest.coast.cluster*.mat'.
 %
 % (from part 1) Mat-files with lon and lat ranges, indices to positions
 % in the costal zone and inland, and the size of both the original and
@@ -132,11 +133,14 @@ error(nargchk(2,7,nargin));
 if nargin<7 | isempty(crit),	crit=[30 50 400];	end	% [maxclust, maxlat, maxcoast] empirically chosen internal criteria.
 if nargin<6 | isempty(plotall),	plotall=logical(0);	end	% Logical whether to plot all or only on-land cases.
 if nargin<5 | isempty(j),	j=0;			end	% External (file) counter.
-if nargin<4 | isempty(part),	part=logical([1 1 0]),	end	% Turn on and off which parts of script to run.
+if nargin<4 | isempty(part),	part=logical([1 1 0]);	end	% Turn on and off which parts of script to run.
 if nargin<3 | isempty(file),	file=[temp,'file'];	end	% Dummy path and filename to name and place the files by.
 mes='';								% Short message to add to output messages.
 olap=zeros(1,crit(1));						% Notification flag in case of overlapping land patches.
 flag=[];							% Empty output for Part 1 and 2.
+
+[oM,oN]=size(lon);									% Store original size.
+if any([oM,oN]~=size(lat)), error('Sizes of input lon and lat must match!'); end
 
 if (part(1)|part(2))&part(3), 
   part=logical([1 1 0]); 
@@ -147,8 +151,8 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
   
   if part(1) % -------------1) ELIMINATE OPEN OCEAN POINTS AND FLAG INLAND POINTS ---------------
     %if exist('zlon'),inpolygon(lon,lat,zlon,zlat); lon=lon(ans); lat=lat(ans);end	% JUST A TEST FOR SMALLER AREAS OF A FILE
-    lom=[min(lon) max(lon)]; lam=[min(lat) max(lat)];					% Ranges of positions in file.
-    [oM,oN]=size(lon);									% Store original size.
+    %lom=[min(lon) max(lon)]; lam=[min(lat) max(lat)];					% Ranges of positions in file.
+    lom=[min(lon)-.06 max(lon)+.05]; lam=[min(lat)-.03 max(lat)+.04]; % Ranges with carefully added space (do not change).
     LO=lon;LA=lat;
     if oM>1&oN>1, disp('      [ positions are in a matrix!!! ]'); end			% Not supported!
     [ans,IA,IC]=unique([lon(:),lat(:)],'rows','stable'); lon=ans(:,1); lat=ans(:,2);	% Unique positions; ans = A(IA) and A = ans(IC)
@@ -259,12 +263,12 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
 	ci=find(I==C(c));					% The indices to positions in cluster (also saved and used later).
 	lom=[min(lon(ci))-.06 max(lon(ci))+.05]; lam=[min(lat(ci))-.03 max(lat(ci))+.04]; 
 	m_proj('albers','lon',double(lom),'lat',double(lam));
+	m_gshhs('c','save',[temp,'temp.mat']); load([temp,'temp'],'ncst'); LC=length(ncst); clear ncst
 	m_gshhs('f','save',[file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat']); 
                       save([file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat'],'ci','lom','lam','mes','-append');
 		      load([file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat'],'ncst'); ncst=single(ncst);
 		      save([file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat'],'ncst','-append'); clear ncst
 	% These files are needed both for the testing (Part 2) and the plotting (Part 3).
-	m_gshhs('c','save',[temp,'temp.mat']); load([temp,'temp'],'ncst'); LC=length(ncst); clear ncst
 	[CN,length(ci),LC,ceil(diff(lom)),ceil(diff(lam))];
 	disp([datestr(now),' - ',int2str(j),' - ',file, ...
 	      '.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat (',num2str(ans,'%2u\t%6u\t%6u\t%3u\t%2u'),') ',mes]);
@@ -363,7 +367,7 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
   
 elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL -----------------------------------
   screensize=get(0,'Screensize');
-  load([file,'.landtest.parameters.mat'],'oM','oN');
+  load([file,'.landtest.parameters.mat']);
   noflags=logical(0);						% (used for plotall)
   try
     load([file,'.landtest_flagged.mat']);			% Load flags ...
@@ -375,7 +379,21 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
   if noflags, flag=logical(zeros(oM,oN)); end
   %if noflags, flag=logical(zeros(size(lon))); end
   clusterfiles=dir([file,'.landtest.coast.cluster*']);		% Read all the corresponding coastfiles.
-  for c=1:length(clusterfiles)					% Loop cluster by cluster.
+  CN=length(clusterfiles);
+  if length(CIC)==0 | CN==0 | plotall					% A coarse overview of everything
+    figure(1); set(gcf,'OuterPosition',screensize); clf;
+    m_proj('mercator','lon',double(lom),'lat',double(lam));
+    m_grid;
+    m_gshhs('l','patch',[.7 .7 .7]);
+    hg=m_line(lon(~flag),lat(~flag),'linestyle','none','marker','.','color','g','markersize',8); % Plot good points
+    hb=m_line(lon(flag),lat(flag),'linestyle','none','marker','.','color','r','markersize',8); % Plot bad points
+    ht=title([int2str(j),' - ',file,' - Overview']); 
+    set(ht,'interpreter','none','fontsize',10);
+    set(1,'renderer','painters');
+    print('-dpng','-r100',[file,'.landtest_flagged.overview.png']);  
+    disp([datestr(now),' - ',int2str(j),' - ',file,'.landtest_flagged.overview.png']);
+  end
+  for c=1:CN								% Loop cluster by cluster.
     load([clusterfiles(c).folder,filesep,clusterfiles(c).name],'lom','lam','ci');	% Load the cluster's region and indices.
     i=find(lom(1)<=lon & lon<lom(2) & lam(1)<lat & lat<lam(2));				% All positions in that cluster's region.
     if any(flag(i),'all') | plotall | olap(1,c)			% Only plot if flagged data in region, overlap, or plotall.  
