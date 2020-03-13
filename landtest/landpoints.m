@@ -1,9 +1,9 @@
-function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,crit)
+function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 % LANDPOINTS	Test for on-land lon/lat positions.
 % Uses both a provided 6 minute mask and fine scale vector coastline
 % data to flag positions on land.
 % 
-% [flag,olap] = landpoints(lon,lat,file,part,j,plotall,crit)
+% [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 % 
 % lon,lat = Numeric input for positions to test. The output flag will
 %           have the same size as these. For large data sets it is
@@ -22,13 +22,18 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,crit)
 % plotall = Logical, set as true to force maps to be plotted also when
 %           everything is fine (default is to only plot maps when
 %           there are points on land). 
+% margin  = Margin in fractions of length of longest distance
+%           between nearest coastline points margin for identifying
+%           inland points close to the coast (default=1/1).
 % crit    = Setting for optimization of clustering of Part 1. These
 %           are empirically chosen using large and global sets of
 %           positions, so do not input if you are not experienced
 %           in the use of this function.
 %
-% flag    = Logical the same size as input lon/lat, true for on-land
-%           positions. These are also stored in an output mat-file.
+% flag    = int8 of the same size as input lon/lat, 0 for good data,
+%           1 for on-land positions, 2 for inland positions close to
+%           coast (probably good data; see input 'margin'
+%           above). These are also stored in an output mat-file. 
 % olap    = Numerical of value one for clusters with coastline
 %           polygions that overlap eachother, which are normally
 %           lakes, but worthwhile checking out. 
@@ -45,10 +50,10 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,crit)
 % positions. This mask is provided with this function in
 % coastal_and_inland_masks6.mat. Then, a coastline file for the
 % remaining coastal-zone positions is made, using the full resolution
-% GSHHS coastline. If positions are widespread or many, clustering of
-% positions will be done to reduce load. This making of test data is a
-% time consuming process, hence separated from the actual testing of
-% positions.
+% GSHHS coastline (which is in WGS84). If positions are widespread or
+% many, clustering of positions will be done to reduce load. This making
+% of test data is a time consuming process, hence separated from the
+% actual testing of positions.
 %
 % 2) Test the postitions against the corresponding coastline
 % (clusters). INPOLYGON is used to find data inside the polygons. If a
@@ -107,14 +112,17 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,crit)
 % investigate.
 %
 %
-% EXAMPLE OF USE:
+% TWO EXAMPLES OF USE:
 %
+% landpoints([0:20],[56:76],[],[1 1 0])				% Test the positions.
+% landpoints([0:20],[56:76],[],[0 0 1],[],logical(1));		% Plot all positions. 
+% 
 % for j=1:FN							% Loop each file.
 %   lon=single(ncread(files{j},'LONGITUDE'));			% Load the data positions from file.
 %   lat=single(ncread(files{j},'LATITUDE'));			% Load the data positions from file.
 %   [ans,olap(j,:)]=landpoints(lon,lat,files{j},[1 1 0],j);	% Test the positions.
 %   landpoints(lon,lat,files{j},[0 0 1],j);			% Plot the flagged positions. 
-% end
+% end 
 %
 %
 % REQUIREMENTS:
@@ -123,14 +131,30 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,crit)
 % the file coastal_and_inland_masks6.mat put alongside this function. 
 %
 %
+% RECOURCES:
+% https://www.ngdc.noaa.gov/mgg/shorelines/
+%
+%
 % See also CLUSTERDATA INPOLYGON M_MAP M_GSHHS EVENMAT
 
 %% Set your own parameters here: %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 temp='~/Downloads/';			% Temporary directory
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
+% A test for pure zonal group of points: 
+% landpoints([0:20],repmat(61.1,1,21),[],[1 1 0])
+% landpoints([0:20],repmat(61.1,1,21),[],[0 0 1],[],logical(1));
+% A test for pure meridional group of points: 
+% landpoints(repmat(6,1,21),[56:76],[],[1 1 0])
+% landpoints(repmat(6,1,21),[56:76],[],[0 0 1],[],logical(1))
+
+% flag    = Logical the same size as input lon/lat, true for on-land
+%           positions. These are also stored in an output mat-file.
+
+
 error(nargchk(2,7,nargin));
-if nargin<7 | isempty(crit),	crit=[30 50 400];	end	% [maxclust, maxlat, maxcoast] empirically chosen internal criteria.
+if nargin<8 | isempty(crit),	crit=[30 50 400];	end	% [maxclust, maxlat, maxcoast] empirically chosen internal criteria.
+if nargin<7 | isempty(margin),	margin=1/1;		end	% Margin in fractions of length of longest distance between nearest coastline points.
 if nargin<6 | isempty(plotall),	plotall=logical(0);	end	% Logical whether to plot all or only on-land cases.
 if nargin<5 | isempty(j),	j=0;			end	% External (file) counter.
 if nargin<4 | isempty(part),	part=logical([1 1 0]);	end	% Turn on and off which parts of script to run.
@@ -139,8 +163,23 @@ mes='';								% Short message to add to output messages.
 olap=zeros(1,crit(1));						% Notification flag in case of overlapping land patches.
 flag=[];							% Empty output for Part 1 and 2.
 
-[oM,oN]=size(lon);									% Store original size.
+% Check for impossible positions:
+[oM,oN]=size(lon);						% Store original size.
 if any([oM,oN]~=size(lat)), error('Sizes of input lon and lat must match!'); end
+lon==180; lon(ans)=lon(ans)-360;				% Acceptable, but move from eastern edge.	
+if any(lon<-180|180<lon,'all')
+  warning('Longitudes outside of accepted range (-180 - 180)!');
+  lon<-180; lon(ans)=lon(ans)+360;
+  180<=lon; lon(ans)=lon(ans)-360;
+end
+lat==90; lat(ans)=lat(ans)-.1;					% Acceptable, but move from northern edge.	
+if any(lat<-90|90<lat,'all')
+  error('Latitude outside accepted range (-90 - 90)!');
+end
+% This could possibly include merely flagging these impossible
+% positions here in the test. But need to give more thought, because
+% they should be discernable from on-land flags. (There were no
+% occurances in the March dataset.)
 
 if (part(1)|part(2))&part(3), 
   part=logical([1 1 0]); 
@@ -151,8 +190,9 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
   
   if part(1) % -------------1) ELIMINATE OPEN OCEAN POINTS AND FLAG INLAND POINTS ---------------
     %if exist('zlon'),inpolygon(lon,lat,zlon,zlat); lon=lon(ans); lat=lat(ans);end	% JUST A TEST FOR SMALLER AREAS OF A FILE
-    %lom=[min(lon) max(lon)]; lam=[min(lat) max(lat)];					% Ranges of positions in file.
-    lom=[min(lon)-.06 max(lon)+.05]; lam=[min(lat)-.03 max(lat)+.04]; % Ranges with carefully added space (do not change).
+    lom=[min(lon) max(lon)]; lam=[min(lat) max(lat)];					% Ranges of positions in file.
+    lom=[min(lon)-.08 max(lon)+.07]; lam=[min(lat)-.07 max(lat)+.06]; % Ranges with carefully added space (do not change).
+    lam(1)=max(lam(1),-90); lam(2)=min(lam(2),90);  %% A bug fix 11.03.2020 necessary when adding space around lom and lam.
     LO=lon;LA=lat;
     if oM>1&oN>1, disp('      [ positions are in a matrix!!! ]'); end			% Not supported!
     [ans,IA,IC]=unique([lon(:),lat(:)],'rows','stable'); lon=ans(:,1); lat=ans(:,2);	% Unique positions; ans = A(IA) and A = ans(IC)
@@ -237,6 +277,7 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
 	while CN<crit(1)			% Maybe split clusters (iterative process).
 	  ci=find(I==C(c))';			% The indices to positions belonging in cluster.
 	  lom=[min(lon(ci))-.06 max(lon(ci))+.05]; lam=[min(lat(ci))-.03 max(lat(ci))+.04]; % Ranges with carefully added space (do not change).
+	  lam(1)=max(lam(1),-90); lam(2)=min(lam(2),90);  %% A bug fix 11.03.2020 necessary when adding space around lom and lam.
 	  if (diff(lom) > crit(2)/cosd(min(abs(lam))) | diff(lam) > crit(2) ) & length(ci) > 1
 	    mes=[mes,'w'];			% Locations are widespread. Make two new clusters:
 	    I(ci)=max(C)+clusterdata([lon(ci)./coslat(ci),lat(ci)],'distance','euclidean','linkage','ward','criterion','distance','maxclust',2);
@@ -261,13 +302,15 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
       % ----- WRITE COASTFILES AND DISPLAY MESSAGE: -------
       for c=1:CN						% Loop clusters and find their fine coastlines.
 	ci=find(I==C(c));					% The indices to positions in cluster (also saved and used later).
-	lom=[min(lon(ci))-.06 max(lon(ci))+.05]; lam=[min(lat(ci))-.03 max(lat(ci))+.04]; 
+	lom=[min(lon(ci))-.08 max(lon(ci))+.07]; lam=[min(lat(ci))-.04 max(lat(ci))+.03]; % Ranges with carefully added space (do not change).
+	lam(1)=max(lam(1),-90); lam(2)=min(lam(2),90);  %% A bug fix 11.03.2020 necessary when adding space around lom and lam.
 	m_proj('albers','lon',double(lom),'lat',double(lam));
-	m_gshhs('c','save',[temp,'temp.mat']); load([temp,'temp'],'ncst'); LC=length(ncst); clear ncst
+	m_gshhs('c','save',[temp,'temp.mat']); load([temp,'temp'],'ncst'); LC=length(ncst); clear ncst; delete([temp,'temp.mat']);
 	m_gshhs('f','save',[file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat']); 
                       save([file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat'],'ci','lom','lam','mes','-append');
-		      load([file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat'],'ncst'); ncst=single(ncst);
-		      save([file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat'],'ncst','-append'); clear ncst
+		      %%Removed this part that was supposed to save memory, but also removed map corners from the coastline polygon:
+		      %%load([file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat'],'ncst'); ncst=single(ncst);
+		      %%save([file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat'],'ncst','-append'); clear ncst
 	% These files are needed both for the testing (Part 2) and the plotting (Part 3).
 	[CN,length(ci),LC,ceil(diff(lom)),ceil(diff(lam))];
 	disp([datestr(now),' - ',int2str(j),' - ',file, ...
@@ -281,18 +324,21 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
   
   if part(2) % -------------- 2) TEST AND FLAG POSITIONS -------------------------------
     load([file,'.landtest.parameters.mat']);
-    flag=logical(zeros(oM,oN));						% Flag matrix for the original positions (init.).
-    flagg=zeros(M,N);							% Flag matrix for the unique coastal zone positions (init.).
+    %flag=logical(zeros(oM,oN));					% Flag matrix for the original positions (init.).
+    flag=int8(zeros(oM,oN));						% Flag matrix for the original positions (init.).
+    %flagg=zeros(M,N);							% Flag matrix for the unique coastal zone positions (init.).
+    flagg=int8(zeros(M,N));						% Flag matrix for the unique coastal zone positions (init.).
     if ~isempty(CIC)
       if ~part(1)
 	lon=lon(CIC); lat=lat(CIC);		% Reduce to the unique coastal zone positions if not already reduced in Part 1.
       end
       clusterfiles=dir([file,'.landtest.coast.cluster*']);		% Read all the corresponding coastfiles.
       for c=1:length(clusterfiles)	% Test all positions cluster by cluster, flagging the same flag-matrix.
-	flg=zeros([M,N]);							% Full size flag matrix, but internal to this loop.
+	%flg=zeros([M,N]);							% Full size flag matrix, but internal to this loop.
+	flg=int8(zeros([M,N]));							% Full size flag matrix, but internal to this loop.
 	load([clusterfiles(c).folder,filesep,clusterfiles(c).name]);	% Load coastlines and indices.
 	for i=1:length(k)-1						% Flag the on-land data positions in this cluster.
-	  flg(ci)=flg(ci)+inpolygon(lon(ci),lat(ci),ncst(k(i)+1:k(i+1)-1,1),ncst(k(i)+1:k(i+1)-1,2));
+	  flg(ci)=flg(ci)+int8(inpolygon(lon(ci),lat(ci),ncst(k(i)+1:k(i+1)-1,1),ncst(k(i)+1:k(i+1)-1,2)));
 	end
 	if any(flg>1,'all')		% Test if flg>1 anywhere, because then polygons have overlapped.
 	  disp([datestr(now),' - ',int2str(j),' - ',file,'-cluster',int2str(c),' – Two polygons have overlapped.']);
@@ -313,7 +359,8 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
 	~flagg; flagg(ans)=flg(ans);		% Add the cluster's flg to the file's flagg, but avoid double
 						% flagging between the rectangular cluster areas.
       end
-      flagg=logical(flagg);			% Make logical and keep these flags to the unique coastal zone positions (for plotting).
+      %flagg=logical(flagg);			% Make logical and keep these flags to the unique coastal zone positions (for plotting).
+      flagg(find(flagg))=1;			% No, keep open for qcflag=2 below.
       
       % -------------- CLOSENESS TO COASTLINE: ----------------------------- 
       % Unflag the flagged points close to the coastline. Criterion will be closer than half the resolution of the nearest coastline points.
@@ -339,25 +386,28 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
 	  end									
 	  B=ncst(cp,:);								% The coastpoints to test against
 	  coastres=sw_dist(B(:,2),B(:,1));					% Distances between the 3 nearest coast points 
-	  if closest(1)<max(coastres)/2						% Evaluate closeness
-	    flagg(ii(i))=0;							% If too close, unflag the position.   
-      	    % % Make control figures for this routine:
-	    % figure(11);clf;
-	    % m_proj('Azimuthal Equidistant','lon',double(A(1)),'lat',double(A(2)),'rad',double(A)+[.025 -.025]); 
-	    % m_grid; m_gshhs_f('patch',[.7 .7 .7]);
-	    % hgA=m_line(A(1),A(2),'linestyle','none','marker','.','color','g','markersize',8);
-	    % hgC=m_line(B(:,1),B(:,2),'linestyle','-','marker','.','color','r','markersize',8);
-	    % print('-dpng','-r100',[file,'.reversed_landpoint',num2str(i,'%3.3d'),'.png']);  
+	  if closest(1)<max(coastres)*margin					% Evaluate closeness
+	    %%flagg(ii(i))=0;							% If too close, unflag the position.   
+	    flagg(ii(i))=2;							% If too close, qc=2 probably good data.
+      	    if logical(0) % Make control figures for this routine:
+	      figure(11);clf;
+	      m_proj('Azimuthal Equidistant','lon',double(A(1)),'lat',double(A(2)),'rad',double(A)+[.025 -.025]); 
+	      m_grid; m_gshhs_f('patch',[.7 .7 .7]);
+	      hgC=m_line(B(:,1),B(:,2),'linestyle','-','marker','.','color','r','markersize',8);
+	      hgA=m_line(A(1),A(2),'linestyle','none','marker','.','color','y','markersize',8);
+	      print('-dpng','-r100',[file,'.reversed_landpoint',num2str(i,'%3.3d'),'.png']);  
+	    end
 	  end
 	end
       end 
     end
     flag(CIC)=flagg;
-    flag(LIC)=logical(1);			% Now, flag the clearly inland positions.	    
+    %flag(LIC)=logical(1);			% Now, flag the clearly inland positions.	    
+    flag(LIC)=1;			% Now, flag the clearly inland positions.	    
     % ----- WRITE FLAG FILES AND DISPLAY MESSAGE: -------
     system(['rm -f ',file,'.landtest_flagged*']);	% Remove old flag files belonging to this datafile.
     if any(flag,'all')					% Save both these logical flag matrices, etc.:
-      save([file,'.landtest_flagged.mat'],'flagg','flag');
+      save([file,'.landtest_flagged.mat'],'flag');%'flagg','flag');
       disp([datestr(now),' - ',int2str(j),' - ',file,'.landtest_flagged.mat']);
     end
   end
@@ -386,7 +436,9 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
     m_grid;
     m_gshhs('l','patch',[.7 .7 .7]);
     hg=m_line(lon(~flag),lat(~flag),'linestyle','none','marker','.','color','g','markersize',8); % Plot good points
-    hb=m_line(lon(flag),lat(flag),'linestyle','none','marker','.','color','r','markersize',8); % Plot bad points
+    %hb=m_line(lon(flag),lat(flag),'linestyle','none','marker','.','color','r','markersize',8); % Plot bad points
+    hb=m_line(lon(flag==1),lat(flag==1),'linestyle','none','marker','.','color','r','markersize',8); % Plot bad points
+    hp=m_line(lon(flag==2),lat(flag==2),'linestyle','none','marker','.','color','y','markersize',8); % Plot probably good points
     ht=title([int2str(j),' - ',file,' - Overview']); 
     set(ht,'interpreter','none','fontsize',10);
     set(1,'renderer','painters');
@@ -398,11 +450,13 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
     i=find(lom(1)<=lon & lon<lom(2) & lam(1)<lat & lat<lam(2));				% All positions in that cluster's region.
     if any(flag(i),'all') | plotall | olap(1,c)			% Only plot if flagged data in region, overlap, or plotall.  
       figure(1); set(gcf,'OuterPosition',screensize); clf;						% Make map 
-      m_proj('mercator','lon',double(lom),'lat',double(lam));
+      m_proj('albers','lon',double(lom),'lat',double(lam));
       m_grid;
       m_usercoast([clusterfiles(c).folder,filesep,clusterfiles(c).name],'patch',[.7 .7 .7]);
       hg=m_line(lon(i(~flag(i))),lat(i(~flag(i))),'linestyle','none','marker','.','color','g','markersize',8); % Plot good points
-      hb=m_line(lon(i( flag(i))),lat(i( flag(i))),'linestyle','none','marker','.','color','r','markersize',8); % Plot bad points
+      %hb=m_line(lon(i( flag(i))),lat(i( flag(i))),'linestyle','none','marker','.','color','r','markersize',8); % Plot bad points
+      hb=m_line(lon(i( flag(i)==1)),lat(i( flag(i)==1)),'linestyle','none','marker','.','color','r','markersize',8); % Plot bad points
+      hb=m_line(lon(i( flag(i)==2)),lat(i( flag(i)==2)),'linestyle','none','marker','.','color','y','markersize',8); % Plot probably good points
       ht=title([int2str(j),' - ',file,' - Cluster ',int2str(c)]); 
       set(ht,'interpreter','none','fontsize',10);
       % ----- PRINT FIGURES AND DISPLAY MESSAGE: -------
@@ -415,3 +469,5 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
   end
 end
   
+
+
