@@ -55,21 +55,21 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 % of test data is a time consuming process, hence separated from the
 % actual testing of positions.
 %
-% 2) Test the postitions against the corresponding coastline
-% (clusters). INPOLYGON is used to find data inside the polygons. If a
-% position falls inside two polygons, it's likely in a lake. The clearly
-% inland positions identified in Part 1 are also assigned to the flag
-% variable. On the other hand, on-land positions closer to the coastline
-% than half the resolution of the nearest coastline points, are not
-% flagged.
+% 2) Test the coastal-zone postitions against the corresponding
+% coastline (clusters). INPOLYGON is used to find data inside the
+% polygons. If a position falls inside two polygons, it's likely in a
+% lake. The clearly inland positions identified in Part 1 are also
+% assigned number 1 in the flag variable. On-land positions closer to
+% the coastline (than the resolution and set margin dictates) of the
+% nearest coastline points, are assigned the number 2.
 %
 % 3) Maps for visual inspection. (This part must be run separately.)
 % Prints maps for each cluster file and shows red dots for flagged
-% positions and green dots for not flagged. Uses input positions,
-% coastlines from (1), and flags from (2). By default plots maps only
-% for clusters with flagged positions, but can be set to plot for all
-% positions (see above). No plots are made if there are no points in
-% the coastal zone.
+% positions, green dots for not flagged, and yellow dots for probably
+% good positions. Uses input positions, coastlines from (1), and flags
+% from (2). By default plots maps only for clusters with flagged
+% positions, but can be set to plot for all positions (see above). No
+% plots are made if there are no points in the coastal zone.
 %
 %
 % OUTPUT FILES:
@@ -104,7 +104,7 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 % or type of clustering done (c = long coastline; w = widespread
 % positions; CK = by the thousands of positions; C2 = two clusters;
 % MP/LP= medium/large dataset primitively split by longitude; 1L = one
-% location only).  
+% location only).
 % - Time stamp and name of every flag file written. 
 % - The warning 'two polygons have overlapped' when a point is inside
 % two polygons, which means it is likely in a lake or inland sea. More
@@ -190,7 +190,7 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
   
   if part(1) % -------------1) ELIMINATE OPEN OCEAN POINTS AND FLAG INLAND POINTS ---------------
     %if exist('zlon'),inpolygon(lon,lat,zlon,zlat); lon=lon(ans); lat=lat(ans);end	% JUST A TEST FOR SMALLER AREAS OF A FILE
-    lom=[min(lon) max(lon)]; lam=[min(lat) max(lat)];					% Ranges of positions in file.
+    %lom=[min(lon) max(lon)]; lam=[min(lat) max(lat)];					% Ranges of positions in file.
     lom=[min(lon)-.08 max(lon)+.07]; lam=[min(lat)-.07 max(lat)+.06]; % Ranges with carefully added space (do not change).
     lam(1)=max(lam(1),-90); lam(2)=min(lam(2),90);  %% A bug fix 11.03.2020 necessary when adding space around lom and lam.
     LO=lon;LA=lat;
@@ -199,13 +199,14 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
     load coastal_and_inland_masks6 LON LAT COASTAL INLAND				% Load the masks
     coi=find(ismember(int16(floor([lon(:),lat(:)]*10)),[LON(COASTAL(:)),LAT(COASTAL(:))],'rows'));	% Indices to unique positions in the coastal zone 
     lai=find(ismember(int16(floor([lon(:),lat(:)]*10)),[LON(INLAND(:)),LAT(INLAND(:))],'rows'));	% Indices to unique positions clearly inland.
-    LIC=IA(lai);									% Indices to the original placement of the inland positions
-    CIC=IA(coi);									% Indices to the original placement of the positions to be tested
+    %LIC=IA(lai);									% Indices to the original placement of the inland positions
+    %CIC=IA(coi);									% Indices to the original placement of the positions to be tested
     lon=lon(coi); lat=lat(coi);								% Unique positions in coastal zone.
-    % Note: now exactly the same as lon=lon(CIC) on the original loaded lon.
+    % Note: now exactly the same as lon=lon(IA(coi)) on the original loaded lon.
+    % IC is where the coi and lai is in the full matrix. 
     [M,N]=size(lon);									% Size of the reduced dataset
     system(['rm -f ',file,'.landtest*']);						% Remove old landtest files belonging to this datafile.
-    save([file,'.landtest.parameters.mat'],'lom','lam','oM','oN','M','N','CIC','LIC');
+    save([file,'.landtest.parameters.mat'],'lom','lam','oM','oN','M','N','coi','lai','IC','IA');
 
     % -------------- EAST-WEST CHECK (possibly missing sign): --------------------- 
     %
@@ -328,14 +329,14 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
     flag=int8(zeros(oM,oN));						% Flag matrix for the original positions (init.).
     %flagg=zeros(M,N);							% Flag matrix for the unique coastal zone positions (init.).
     flagg=int8(zeros(M,N));						% Flag matrix for the unique coastal zone positions (init.).
-    if ~isempty(CIC)
+    if ~isempty(IA(coi))
       if ~part(1)
-	lon=lon(CIC); lat=lat(CIC);		% Reduce to the unique coastal zone positions if not already reduced in Part 1.
+	lon=lon(IA(coi)); lat=lat(IA(coi));		% Reduce to the unique coastal zone positions if not already reduced in Part 1.
       end
       clusterfiles=dir([file,'.landtest.coast.cluster*']);		% Read all the corresponding coastfiles.
-      for c=1:length(clusterfiles)	% Test all positions cluster by cluster, flagging the same flag-matrix.
-	%flg=zeros([M,N]);							% Full size flag matrix, but internal to this loop.
-	flg=int8(zeros([M,N]));							% Full size flag matrix, but internal to this loop.
+      for c=1:length(clusterfiles)		% Test positions cluster by cluster, flagging the same flag-matrix.
+	%flg=zeros([M,N]);						% Full size flag matrix, but internal to this loop.
+	flg=int8(zeros([M,N]));						% Full size flag matrix, but internal to this loop.
 	load([clusterfiles(c).folder,filesep,clusterfiles(c).name]);	% Load coastlines and indices.
 	for i=1:length(k)-1						% Flag the on-land data positions in this cluster.
 	  flg(ci)=flg(ci)+int8(inpolygon(lon(ci),lat(ci),ncst(k(i)+1:k(i+1)-1,1),ncst(k(i)+1:k(i+1)-1,2)));
@@ -401,9 +402,12 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
 	end
       end 
     end
-    flag(CIC)=flagg;
-    %flag(LIC)=logical(1);			% Now, flag the clearly inland positions.	    
-    flag(LIC)=1;			% Now, flag the clearly inland positions.	    
+    % flagg is for the unique coastal zone positions.
+    % IC is where the coi and lai is in the full matrix. 
+    % IA(coi) are indices to the original placement of the unique coastal zone positions.
+    %%flag(IA(coi))=flagg; % Here was the bug.
+    flag=flagg(IC);
+    flag(IA(lai))=1;			% Now, flag the clearly inland positions.	    
     % ----- WRITE FLAG FILES AND DISPLAY MESSAGE: -------
     system(['rm -f ',file,'.landtest_flagged*']);	% Remove old flag files belonging to this datafile.
     if any(flag,'all')					% Save both these logical flag matrices, etc.:
@@ -430,7 +434,7 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
   %if noflags, flag=logical(zeros(size(lon))); end
   clusterfiles=dir([file,'.landtest.coast.cluster*']);		% Read all the corresponding coastfiles.
   CN=length(clusterfiles);
-  if length(CIC)==0 | CN==0 | plotall					% A coarse overview of everything
+  if length(IA(coi))==0 | CN==0 | plotall					% A coarse overview of everything
     figure(1); set(gcf,'OuterPosition',screensize); clf;
     m_proj('mercator','lon',double(lom),'lat',double(lam));
     m_grid;
