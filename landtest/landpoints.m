@@ -24,7 +24,7 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 %           there are points on land). 
 % margin  = Margin in fractions of length of longest distance
 %           between nearest coastline points for identifying
-%           inland points close to the coast (default=1/2).
+%           inland points close to the coast (default=1/1).
 % crit    = Setting for optimization of clustering of Part 1. These
 %           are empirically chosen using large and global sets of
 %           positions, so do not input if you are not experienced
@@ -157,7 +157,7 @@ temp='~/Downloads/';			% Temporary directory
 
 error(nargchk(2,7,nargin));
 if nargin<8 | isempty(crit),	crit=[30 50 400];	end	% [maxclust, maxlat, maxcoast] empirically chosen internal criteria.
-if nargin<7 | isempty(margin),	margin=1/2;		end	% Margin in fractions of length of longest distance between nearest coastline points.
+if nargin<7 | isempty(margin),	margin=1/1;		end	% Margin in fractions of length of longest distance between nearest coastline points.
 if nargin<6 | isempty(plotall),	plotall=logical(0);	end	% Logical whether to plot all or only on-land cases.
 if nargin<5 | isempty(j),	j=0;			end	% External (file) counter.
 if nargin<4 | isempty(part),	part=logical([1 1 0]);	end	% Turn on and off which parts of script to run.
