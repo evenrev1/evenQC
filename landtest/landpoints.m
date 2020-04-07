@@ -280,7 +280,8 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
 	    I(ci)=max(C)+clusterdata([lon(ci)./coslat(ci),lat(ci)],'distance','euclidean','linkage','ward','criterion','distance','maxclust',2);
 	    C=unique(I)'; CN=length(C); c=1;
 	  elseif length(ci) > 1			% Or maybe coastline is too long. 
-	    m_proj('albers','lon',lom,'lat',lam);  m_gshhs('c','save',[temp,'temp.mat']); load([temp,'temp'],'ncst');
+	    m_proj('albers','lon',lom,'lat',lam,'ellipsoid','wgs84');  
+	    m_gshhs('c','save',[temp,'temp.mat']); load([temp,'temp'],'ncst');
 	    if length(ncst)>crit(3), clear ncst	% Coastline is too long. 
 	      mes=[mes,'c']; 
 						% Add new cluster number to existing I at the ci points:
@@ -301,7 +302,7 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
 	ci=find(I==C(c));			% The indices to positions in cluster (also saved and used later).
 	lom=[min(lon(ci))-.08 max(lon(ci))+.07]; lam=[min(lat(ci))-.04 max(lat(ci))+.03]; % Ranges with carefully added space (do not change).
 	lam(1)=max(lam(1),-90); lam(2)=min(lam(2),90);  %% A bug fix 11.03.2020 necessary when adding space around lom and lam.
-	m_proj('albers','lon',double(lom),'lat',double(lam));
+	m_proj('albers','lon',double(lom),'lat',double(lam),'ellipsoid','wgs84');
 	m_gshhs('c','save',[temp,'temp.mat']); load([temp,'temp'],'ncst'); LC=length(ncst); clear ncst; delete([temp,'temp.mat']);
 	m_gshhs('f','save',[file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat']); 
                       save([file,'.landtest.coast.cluster',num2str(c,'%2.2d'),'.mat'],'ci','lom','lam','mes','-append');
@@ -454,7 +455,7 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
     i=find(lom(1)<=lon & lon<lom(2) & lam(1)<lat & lat<lam(2));				% All positions in that cluster's region.
     if any(flag(i),'all') | plotall | olap(1,c)	% Only plot if flagged data in region, overlap, or plotall:
       figure(1); set(gcf,'OuterPosition',screensize); clf;
-      m_proj('albers','lon',double(lom),'lat',double(lam));
+      m_proj('albers','lon',double(lom),'lat',double(lam),'ellipsoid','wgs84');
       m_grid;
       m_usercoast([clusterfiles(c).folder,filesep,clusterfiles(c).name],'patch',[.7 .7 .7]);
       hg=m_line(lon(i(~flag(i))),lat(i(~flag(i))),'linestyle','none','marker','.','color','g','markersize',8);		% Plot good points
