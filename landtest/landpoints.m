@@ -82,13 +82,13 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 % positions are in the coastal zone, files are written alongside data
 % files and named '<file>.landtest.coast.cluster*.mat'.
 %
-% (from part 1) Mat-files with lon and lat ranges, indices to positions
+% (from part 1) Mat-file with lon and lat ranges, indices to positions
 % in the costal zone and inland, and the size of both the original and
 % the reduced dataset, named
 % '<file>.landtest.parameters.mat'
 %
-% (from part 2) Mat-files with logical matrix called 'flag' matching the
-% lon/lat matrices of the input file. File names are
+% (from part 2) Mat-file with logical matrix called 'flag' matching the
+% lon/lat matrices of the input file. File name is
 % '<file>.landtest_flagged.mat'
 %
 % (from part 3) All maps in same figure, but saved to file
