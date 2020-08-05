@@ -89,10 +89,10 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 %
 % (from part 2) Mat-file with logical matrix called 'flag' matching the
 % lon/lat matrices of the input file. File name is
-% '<file>.landtest_flagged.mat'
+% '<file>.landtest.flagged.mat'
 %
 % (from part 3) All maps in same figure, but saved to file
-% '<file>.landtest_flagged.cluster*.png'.
+% '<file>.landtest.flagged.cluster*.png'.
 %
 % (Always) Indices to files with warnings (currently only about
 % overlapping polygons; see below), in the file
@@ -412,10 +412,10 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
     flag=reshape(flag,oM,oN);	% Reshape back to original size.
 
     % WRITE FLAG FILES AND DISPLAY MESSAGE:
-    system(['rm -f ',file,'.landtest_flagged*']);	% Remove old flag files belonging to this datafile.
+    system(['rm -f ',file,'.landtest.flagged*']);	% Remove old flag files belonging to this datafile.
     if any(flag,'all')					% Save both these logical flag matrices, etc.:
-      save([file,'.landtest_flagged.mat'],'flag');
-      disp([datestr(now),' - ',int2str(j),' - ',file,'.landtest_flagged.mat']);
+      save([file,'.landtest.flagged.mat'],'flag');
+      disp([datestr(now),' - ',int2str(j),' - ',file,'.landtest.flagged.mat']);
     end
   end
   
@@ -427,12 +427,12 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
   load([file,'.landtest.parameters.mat']);
   noflags=logical(0);						% (used for plotall)
   try
-    load([file,'.landtest_flagged.mat']);			% Load flags ...
+    load([file,'.landtest.flagged.mat']);			% Load flags ...
   catch	
     noflags=logical(1);
     if ~plotall, return; end					% ... but return if no flag/file.
   end
-  system(['rm -f ',file,'.landtest_flagged*.png']);		% Remove old figure files belonging to this datafile.
+  system(['rm -f ',file,'.landtest.flagged*.png']);		% Remove old figure files belonging to this datafile.
   if noflags, flag=logical(zeros(oM,oN)); end
   clusterfiles=dir([file,'.landtest.coast.cluster*']);		% All the corresponding coastfiles.
   CN=length(clusterfiles);
@@ -447,8 +447,8 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
     ht=title([int2str(j),' - ',file,' - Overview']); 
     set(ht,'interpreter','none','fontsize',10);
     set(1,'renderer','painters');
-    print('-dpng','-r100',[file,'.landtest_flagged.overview.png']);  
-    disp([datestr(now),' - ',int2str(j),' - ',file,'.landtest_flagged.overview.png']);
+    print('-dpng','-r100',[file,'.landtest.flagged.overview.png']);  
+    disp([datestr(now),' - ',int2str(j),' - ',file,'.landtest.flagged.overview.png']);
   end
   for c=1:CN					% Loop cluster by cluster:
     load([clusterfiles(c).folder,filesep,clusterfiles(c).name],'lom','lam','ci');	% Load the cluster's region and indices.
@@ -466,9 +466,9 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
       % ----- PRINT FIGURES AND DISPLAY MESSAGE: -------
       set(1,'renderer','painters');
       if olap(1,c), nadd='_overlap'; else nadd=''; end					% Mark figures with ovelapping polygons:
-      print('-dpng','-r100',[file,'.landtest_flagged.cluster',num2str(c,'%2.2d'),nadd,'.png']);  
+      print('-dpng','-r100',[file,'.landtest.flagged.cluster',num2str(c,'%2.2d'),nadd,'.png']);  
       [length(ci),ceil(diff(lom)),ceil(diff(lam))];
-      disp([datestr(now),' - ',int2str(j),' - ',file,'.landtest_flagged.cluster',num2str(c,'%2.2d'),nadd,'.png (',num2str(ans,'%6u\t%3u\t%2u'),')']);
+      disp([datestr(now),' - ',int2str(j),' - ',file,'.landtest.flagged.cluster',num2str(c,'%2.2d'),nadd,'.png (',num2str(ans,'%6u\t%3u\t%2u'),')']);
     end
   end
 end
