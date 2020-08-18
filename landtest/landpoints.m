@@ -33,7 +33,9 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 % flag    = int8 of the same size as input lon/lat, 0 for good data,
 %           1 for on-land positions, 2 for inland positions close to
 %           coast (probably good data; see input 'margin'
-%           above). These are also stored in an output mat-file. 
+%           above). Any impossible latitudes outside -90°-90° or longitudes
+%           outside -360°-360° will be flagged 9. The flag matrix is
+%           also stored in an output mat-file.
 % olap    = Numerical of value one for clusters with coastline
 %           polygions that overlap eachother, which are normally
 %           lakes, but worthwhile checking out. 
@@ -167,18 +169,24 @@ flag=[];							% Empty output for Part 1 and 2.
 if any([oM,oN]~=size(lat)), error('Sizes of input lon and lat must match!'); end
 lon==180; lon(ans)=lon(ans)-360;				% Acceptable, but move from eastern edge.	
 if any(lon<-180|180<lon,'all')
-  warning('Longitudes outside of accepted range (-180 - 180)!');
-  lon<-180; lon(ans)=lon(ans)+360;
+  disp('Longitudes outside of accepted range (-180 - 180)! Corrected once by 360 degrees.');
+  lon<-180; lon(ans)=lon(ans)+360; 
   180<=lon; lon(ans)=lon(ans)-360;
 end
-lat==90; lat(ans)=lat(ans)-.1;					% Acceptable, but move from northern edge.	
-if any(lat<-90|90<lat,'all')
-  error('Latitude outside accepted range (-90 - 90)!');
+if any(lon<-180|180<lon,'all')					% Again, to catch crazy values.
+  lon(ans)=NaN; lat(ans)=NaN; 
+  flag9=int8(zeros(oM,oN)); 
+  flag9(ans)=9;			
+  disp('Some longitudes are unrealistic! Flagged with 9!');
 end
-% This could possibly include merely flagging these impossible
-% positions here in the test. But need to give more thought, because
-% they should be discernable from on-land flags. (There were no
-% occurances in the March dataset.)
+lat==90; lat(ans)=lat(ans)-.1;					% Acceptable, but move from northern edge.	
+lat<-90|90<lat; 
+if any(ans,'all')
+  lon(ans)=NaN; lat(ans)=NaN; 
+  if ~exist('flag9','var'), flag9=int8(zeros(oM,oN)); end 
+  flag9(ans)=9;			
+  disp('Some latitudes are impossible (outside -90 - 90)! Flagged with 9!');
+end
 
 if (part(1)|part(2))&part(3), 
   warning('LANDPOINTS can either test or plot! Defaulting to testing (part=[1 1 0]).');
@@ -301,6 +309,7 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
       for c=1:CN				% Loop clusters and find their fine coastlines.
 	ci=find(I==C(c));			% The indices to positions in cluster (also saved and used later).
 	lom=[min(lon(ci))-.08 max(lon(ci))+.07]; lam=[min(lat(ci))-.04 max(lat(ci))+.03]; % Ranges with carefully added space (do not change).
+	if diff(lom)<=1 | diff(lam)<=.5, lom=lom+[-.4 .4]; lam=lam+[-.2 .2]; end % Some times it just gets too narrow.
 	lam(1)=max(lam(1),-90); lam(2)=min(lam(2),90);  %% A bug fix 11.03.2020 necessary when adding space around lom and lam.
 	m_proj('albers','lon',double(lom),'lat',double(lam),'ellipsoid','wgs84');
 	m_gshhs('c','save',[temp,'temp.mat']); load([temp,'temp'],'ncst'); LC=length(ncst); clear ncst; delete([temp,'temp.mat']);
@@ -411,6 +420,9 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
     flag=flag(IA(IC));		% Expand all flags to the repeated positions (zeros also).
     flag=reshape(flag,oM,oN);	% Reshape back to original size.
 
+    if exist('flag9','var')
+      flag(flag9==9)=9;		% Add the flag for the unrealistic values.
+    end
     % WRITE FLAG FILES AND DISPLAY MESSAGE:
     system(['rm -f ',file,'.landtest.flagged*']);	% Remove old flag files belonging to this datafile.
     if any(flag,'all')					% Save both these logical flag matrices, etc.:
@@ -438,6 +450,8 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
   CN=length(clusterfiles);
   if length(IA(coi))==0 | CN==0 | plotall	% No coastal zone data or no clusterfiles (the same?), then plot a coarse overview of everything:
     figure(1); set(gcf,'OuterPosition',screensize); clf;
+    if diff(lom)<=2 | diff(lam)<=1, lom=lom+[-1 1]; lam=lam+[-.5 .5]; end	% Some times it just gets too narrow to see.
+    lam(1)=max(lam(1),-90); lam(2)=min(lam(2),90);				% Necessary when adding space around lom and lam.
     m_proj('mercator','lon',double(lom),'lat',double(lam));
     m_grid;
     m_gshhs('l','patch',[.7 .7 .7]);
