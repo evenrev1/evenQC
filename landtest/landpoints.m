@@ -24,7 +24,9 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 %           there are points on land). 
 % margin  = Margin in fractions of length of longest distance
 %           between nearest coastline points for identifying
-%           inland points close to the coast (default=1/1).
+%           inland points close to the coast. Must be entered to
+%           activate  modification of flags for near-coast on-land
+%           positions (recommended value is 1/1).
 % crit    = Setting for optimization of clustering of Part 1. These
 %           are empirically chosen using large and global sets of
 %           positions, so do not input if you are not experienced
@@ -49,7 +51,7 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 %
 % 1) First, coastal and inland masks at 6 arcminutes are used to
 % eliminate open ocean positions, and flag clearly inland
-% positions. This mask is provided with this function in
+% positions. This mask is provided together with this function in
 % coastal_and_inland_masks6.mat. Then, a coastline file for the
 % remaining coastal-zone positions is made, using the full resolution
 % GSHHS coastline (which is in WGS84). If positions are widespread or
@@ -62,10 +64,10 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 % coastline polygons, and they are flagged with the number 1 in the flag
 % variable. If a position falls inside two polygons, it's likely in a
 % lake, and not flagged. The clearly inland positions that were
-% identified in (1) are also flagged with 1. Furthermore, flagged
-% positions closer to the coastline than the resolution and set margin
-% dictates, are assigned the number 2, so they can be identified as
-% 'probably good data'.
+% identified in (1) are also flagged with 1. 
+% (OPTIONAL: Furthermore, flagged positions closer to the coastline than
+% the resolution and set margin dictates, are assigned the number 2, so
+% they can be identified as 'probably good data'.)
 %
 % 3) Maps for visual inspection. (This part must be run separately.)
 % Prints maps for each cluster file and shows red dots for flagged
@@ -155,7 +157,7 @@ temp='~/Downloads/';			% Temporary directory
 
 error(nargchk(2,7,nargin));
 if nargin<8 | isempty(crit),	crit=[30 50 400];	end	% [maxclust, maxlat, maxcoast] empirically chosen internal criteria.
-if nargin<7 | isempty(margin),	margin=1/1;		end	% Margin in fractions of length of longest distance between nearest coastline points.
+if nargin<7 | isempty(margin),	margin=0;		end	% Margin in fractions of length of longest distance between nearest coastline points (default = false).
 if nargin<6 | isempty(plotall),	plotall=logical(0);	end	% Logical whether to plot all or only on-land cases.
 if nargin<5 | isempty(j),	j=0;			end	% External (file) counter.
 if nargin<4 | isempty(part),	part=logical([1 1 0]);	end	% Turn on and off which parts of script to run.
@@ -169,7 +171,7 @@ flag=[];							% Empty output for Part 1 and 2.
 if any([oM,oN]~=size(lat)), error('Sizes of input lon and lat must match!'); end
 lon==180; lon(ans)=lon(ans)-360;				% Acceptable, but move from eastern edge.	
 if any(lon<-180|180<lon,'all')
-  disp('Longitudes outside of accepted range (-180 - 180)! Corrected once by 360 degrees.');
+  disp([file,': Longitudes outside of accepted range (-180 - 180)! Corrected once by 360 degrees.']);
   lon<-180; lon(ans)=lon(ans)+360; 
   180<=lon; lon(ans)=lon(ans)-360;
 end
@@ -177,15 +179,16 @@ if any(lon<-180|180<lon,'all')					% Again, to catch crazy values.
   lon(ans)=NaN; lat(ans)=NaN; 
   flag9=int8(zeros(oM,oN)); 
   flag9(ans)=9;			
-  disp('Some longitudes are unrealistic! Flagged with 9!');
+  disp([file,': Some longitudes are unrealistic! Flagged with 9!']);
 end
-lat==90; lat(ans)=lat(ans)-.1;					% Acceptable, but move from northern edge.	
+lat==90; lat(ans)=lat(ans)-.01;					% Acceptable, but move from northern edge.	
+lat==-90; lat(ans)=lat(ans)+.01;				% Acceptable, but move from southern edge.	
 lat<-90|90<lat; 
 if any(ans,'all')
   lon(ans)=NaN; lat(ans)=NaN; 
   if ~exist('flag9','var'), flag9=int8(zeros(oM,oN)); end 
   flag9(ans)=9;			
-  disp('Some latitudes are impossible (outside -90 - 90)! Flagged with 9!');
+  disp([file,': Some latitudes are impossible (outside -90 - 90)! Flagged with 9!']);
 end
 
 if (part(1)|part(2))&part(3), 
@@ -370,42 +373,44 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
       
       % -------------- CLOSENESS TO COASTLINE: ----------------------------- 
       % Unflag the flagged points close to the coastline. Criterion will be closer than half the resolution of the nearest coastline points.
-      ii=find(flagg);
-      for i=1:length(ii)			% Loop the flagged points in the coastal zone of this file:
-	A=[lon(ii(i)),lat(ii(i))];						% The position in question
-        % 1) Quickly find the nearest coastal points: There are ncst distances up to 5 km ≈ 0.05 deg lat, but we are using the
-	% criteria of half a coastpoint distance, so we use .025 ≈ 2.8 km here. Furthermore longitudes are normalised on the
-	% latitudes, to search in as equidistant a space as possible.
-	jB=find(A(1)-.025/cosd(A(2))<ncst(:,1) & ncst(:,1)<A(1)+.025/cosd(A(2)) & A(2)-.025<ncst(:,2) & ncst(:,2)<A(2)+.025); 
-	if length(jB)>=3
-	  B=ncst(jB,:);	nB=size(B,1);						% The coastpoints to use initially
-          % 2) Now test each found coastpoint using real distances:
-	  reshape([repmat(shiftdim(A,-1),1,nB,1);shiftdim(B,-1)],nB*2,2);	% Order into A,B,A,B,...
-	  sw_dist(ans(:,2),ans(:,1));						% Distances between A,B,A,B,... 
-	  [closest,j1]=sort(ans(1:2:end));					% Sort the A to B differences only
-      	  % 3) Find the closest coast point's closed polygon: 
-	  find(k>=jB(j1(1)));
-	  sta=k(ans(1)-1)+1; sto=k(ans(1))-2;					% The closed polygon (not closed)
-	  if jB(j1(1))==k(ans(1)-1)+1,		cp=[sto sta+[0 1]];		% Facilitate for endpoints: first,
-	  elseif jB(j1(1))==k(ans(1))-2,	cp=[sto+[-1 0] 1];		% last,
-	  else					cp=jB(j1(1))+[-1:1];		% between.	     
-	  end									
-	  B=ncst(cp,:);								% The coastpoints to test against
-	  coastres=sw_dist(B(:,2),B(:,1));					% Distances between the 3 nearest coast points 
-	  if closest(1)<max(coastres)*margin					% Evaluate closeness
-	    %%flagg(ii(i))=0;							% If too close, unflag the position.   
-	    flagg(ii(i))=2;							% If too close, qc=2 probably good data.
-      	    if logical(0)			% Make control figures for this routine:
-	      figure(11);clf;
-	      m_proj('Azimuthal Equidistant','lon',double(A(1)),'lat',double(A(2)),'rad',double(A)+[.025 -.025]); 
-	      m_grid; m_gshhs_f('patch',[.7 .7 .7]);
-	      hgC=m_line(B(:,1),B(:,2),'linestyle','-','marker','.','color','r','markersize',8);
-	      hgA=m_line(A(1),A(2),'linestyle','none','marker','.','color','y','markersize',8);
-	      print('-dpng','-r100',[file,'.reversed_landpoint',num2str(i,'%3.3d'),'.png']);  
+      if logical(margin)
+	ii=find(flagg);
+	for i=1:length(ii)			% Loop the flagged points in the coastal zone of this file:
+	  A=[lon(ii(i)),lat(ii(i))];						% The position in question
+          % 1) Quickly find the nearest coastal points: There are ncst distances up to 5 km ≈ 0.05 deg lat, but we are using the
+	  % criteria of half a coastpoint distance, so we use .025 ≈ 2.8 km here. Furthermore longitudes are normalised on the
+	  % latitudes, to search in as equidistant a space as possible.
+	  jB=find(A(1)-.025/cosd(A(2))<ncst(:,1) & ncst(:,1)<A(1)+.025/cosd(A(2)) & A(2)-.025<ncst(:,2) & ncst(:,2)<A(2)+.025); 
+	  if length(jB)>=3
+	    B=ncst(jB,:);	nB=size(B,1);						% The coastpoints to use initially
+            % 2) Now test each found coastpoint using real distances:
+	    reshape([repmat(shiftdim(A,-1),1,nB,1);shiftdim(B,-1)],nB*2,2);	% Order into A,B,A,B,...
+	    sw_dist(ans(:,2),ans(:,1));						% Distances between A,B,A,B,... 
+	    [closest,j1]=sort(ans(1:2:end));					% Sort the A to B differences only
+      	    % 3) Find the closest coast point's closed polygon: 
+	    find(k>=jB(j1(1)));
+	    sta=k(ans(1)-1)+1; sto=k(ans(1))-2;					% The closed polygon (not closed)
+	    if jB(j1(1))==k(ans(1)-1)+1,	cp=[sto sta+[0 1]];		% Facilitate for endpoints: first,
+	    elseif jB(j1(1))==k(ans(1))-2,	cp=[sto+[-1 0] 1];		% last,
+	    else				cp=jB(j1(1))+[-1:1];		% between.	     
+	    end									
+	    B=ncst(cp,:);							% The coastpoints to test against
+	    coastres=sw_dist(B(:,2),B(:,1));					% Distances between the 3 nearest coast points 
+	    if closest(1)<max(coastres)*margin					% Evaluate closeness
+	      %%flagg(ii(i))=0;							% If too close, unflag the position.   
+	      flagg(ii(i))=2;							% If too close, qc=2 probably good data.
+	      if logical(0)			% Make control figures for this routine:
+		figure(11);clf;
+		m_proj('Azimuthal Equidistant','lon',double(A(1)),'lat',double(A(2)),'rad',double(A)+[.025 -.025]); 
+		m_grid; m_gshhs_f('patch',[.7 .7 .7]);
+		hgC=m_line(B(:,1),B(:,2),'linestyle','-','marker','.','color','r','markersize',8);
+		hgA=m_line(A(1),A(2),'linestyle','none','marker','.','color','y','markersize',8);
+		print('-dpng','-r100',[file,'.reversed_landpoint',num2str(i,'%3.3d'),'.png']);  
+	      end
 	    end
 	  end
 	end
-      end 
+      end
       % ---------------------------------------------------------------------------------
     end
 
