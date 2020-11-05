@@ -24,23 +24,33 @@ function [flag,olap] = landpoints(lon,lat,file,part,j,plotall,margin,crit)
 %           there are points on land). 
 % margin  = Margin in fractions of length of longest distance
 %           between nearest coastline points for identifying
-%           inland points close to the coast. Must be entered to
-%           activate  modification of flags for near-coast on-land
-%           positions (recommended value is 1/1).
+%           inland points close to the coast (default=1/1). 
 % crit    = Setting for optimization of clustering of Part 1. These
 %           are empirically chosen using large and global sets of
 %           positions, so do not input if you are not experienced
 %           in the use of this function.
 %
-% flag    = int8 of the same size as input lon/lat, 0 for good data,
-%           1 for on-land positions, 2 for inland positions close to
-%           coast (probably good data; see input 'margin'
-%           above). Any impossible latitudes outside -90°-90° or longitudes
-%           outside -360°-360° will be flagged 9. The flag matrix is
-%           also stored in an output mat-file.
+% flag    = int8 of the same size as input lon/lat, with 0 for positions
+%           at sea, 1 for inland positions, 2 for inland positions close
+%           to coast (see description of 'margin'), and 9 for
+%           otherworldly latitudes outside -90°-90° or longitudes
+%           outside -360°-360°. This flag matrix is also stored in an
+%           output mat-file.
+%
 % olap    = Numerical of value one for clusters with coastline
 %           polygions that overlap eachother, which are normally
 %           lakes, but worthwhile checking out. 
+%
+%
+% IMPORTANT NOTE: 
+% 
+% The numbers used for flags by this function should not be confused
+% with any existing quality control flags. As its name says, this
+% function finds points on land, hence returns 1 for land and 0 for
+% sea. In addition there is the 2 and the 9 (see above).
+% The user can decide for themselves on how to implement them
+% in flagging their data, e.g. netcdf-files. For a simple good or bad
+% point of view, logical(flag) will be true for all bad values.
 %
 %
 % THE THREE PARTS:
@@ -157,7 +167,7 @@ temp='~/Downloads/';			% Temporary directory
 
 error(nargchk(2,7,nargin));
 if nargin<8 | isempty(crit),	crit=[30 50 400];	end	% [maxclust, maxlat, maxcoast] empirically chosen internal criteria.
-if nargin<7 | isempty(margin),	margin=0;		end	% Margin in fractions of length of longest distance between nearest coastline points (default = false).
+if nargin<7 | isempty(margin),	margin=1/1;		end	% Margin in fractions of length of longest distance between nearest coastline points.
 if nargin<6 | isempty(plotall),	plotall=logical(0);	end	% Logical whether to plot all or only on-land cases.
 if nargin<5 | isempty(j),	j=0;			end	% External (file) counter.
 if nargin<4 | isempty(part),	part=logical([1 1 0]);	end	% Turn on and off which parts of script to run.
@@ -438,11 +448,11 @@ if part(1)|part(2)		% Either these two or one of them or plotting (Part 3)
   
   
   
-  
+
 elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL -----------------------------------
   screensize=get(0,'Screensize');
   load([file,'.landtest.parameters.mat']);
-  noflags=logical(0);						% (used for plotall)
+  noflags=logical(0);						% (used for plotall)  
   try
     load([file,'.landtest.flagged.mat']);			% Load flags ...
   catch	
@@ -453,13 +463,14 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
   if noflags, flag=logical(zeros(oM,oN)); end
   clusterfiles=dir([file,'.landtest.coast.cluster*']);		% All the corresponding coastfiles.
   CN=length(clusterfiles);
-  if length(IA(coi))==0 | CN==0 | plotall	% No coastal zone data or no clusterfiles (the same?), then plot a coarse overview of everything:
+  % No coastal zone data or no clusterfiles (the same?), or inland flagged points, then plot a coarse overview of everything:
+  if length(IA(coi))==0 | CN==0 | plotall | any(lai)
     figure(1); set(gcf,'OuterPosition',screensize); clf;
     if diff(lom)<=2 | diff(lam)<=1, lom=lom+[-1 1]; lam=lam+[-.5 .5]; end	% Some times it just gets too narrow to see.
     lam(1)=max(lam(1),-90); lam(2)=min(lam(2),90);				% Necessary when adding space around lom and lam.
     m_proj('mercator','lon',double(lom),'lat',double(lam));
     m_grid;
-    m_gshhs('l','patch',[.7 .7 .7]);
+    m_coast; %m_gshhs('l','patch',[.7 .7 .7]);
     hg=m_line(lon(~flag),lat(~flag),'linestyle','none','marker','.','color','g','markersize',8);	% Plot good points
     hb=m_line(lon(flag==1),lat(flag==1),'linestyle','none','marker','.','color','r','markersize',8);	% Plot bad points
     hp=m_line(lon(flag==2),lat(flag==2),'linestyle','none','marker','.','color','y','markersize',8);	% Plot probably good points
@@ -469,6 +480,7 @@ elseif part(3) % -------------- 3) MAKE PLOTS FOR CONTROL ----------------------
     print('-dpng','-r100',[file,'.landtest.flagged.overview.png']);  
     disp([datestr(now),' - ',int2str(j),' - ',file,'.landtest.flagged.overview.png']);
   end
+  % Check each cluster if it's necessary to plot map for it  (i.e., if any flagged data inside):
   for c=1:CN					% Loop cluster by cluster:
     load([clusterfiles(c).folder,filesep,clusterfiles(c).name],'lom','lam','ci');	% Load the cluster's region and indices.
     i=find(lom(1)<=lon & lon<lom(2) & lam(1)<lat & lat<lam(2));				% All positions in that cluster's region.
